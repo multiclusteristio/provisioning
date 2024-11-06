@@ -1,0 +1,26 @@
+# Ignore temporary files and directories
+*.pyc
+__pycache__/
+*.swp
+.DS_Store
+
+# Ignore sensitive information
+*.pem
+*.ppk
+*.key
+*.crt
+
+# Ignore generated files
+ansible-inventory/hosts
+ansible-playbook.cache
+ansible-vault-encrypted/*
+
+# Ignore specific directories
+.ansible-cli/
+.ansible-tmp/
+.ansible/
+
+# Ignore Vagrant-specific files and directories
+.vagrant/
+Vagrantfile.d/
+Vagrantfile.lock

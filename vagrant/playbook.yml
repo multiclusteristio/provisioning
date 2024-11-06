@@ -1,0 +1,198 @@
+---
+- hosts: all
+  become: true
+  tasks:
+    - name: Install Docker
+      apt:
+        name: docker.io
+        state: present
+        update_cache: true
+
+    - name: Install Kind
+      get_url:
+        url: https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
+        dest: /usr/local/bin/kind
+        mode: '0755'
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Install kubectl
+      get_url:
+        url: https://storage.googleapis.com/kubernetes-release/release/v1.20.0/bin/linux/amd64/kubectl
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+      when: ansible_facts['os_family'] == "Debian"    
+
+    - name: Check if Kind cluster exists
+      command: kind get clusters
+      register: kind_clusters
+      changed_when: false
+
+    - name: Create Kind config file
+      template:
+        src: kind-config.yaml.j2
+        dest: /tmp/kind-config.yaml     
+      when: inventory_hostname not in kind_clusters.stdout           
+
+    - name: Create Kind cluster if it does not exist
+      command: kind create cluster --name {{ inventory_hostname }} --config=/tmp/kind-config.yaml
+      when: inventory_hostname not in kind_clusters.stdout
+
+    - name: Check if ArgoCD namespace exists
+      command: kubectl --context kind-{{ inventory_hostname }} get namespace argocd --ignore-not-found
+      register: argocd_namespace
+      changed_when: false
+
+    - name: Install ArgoCD if not already installed
+      shell: |
+        kubectl --context kind-{{ inventory_hostname }} create namespace argocd
+        kubectl --context kind-{{ inventory_hostname }} apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+      when: argocd_namespace.stdout == ""
+      args:
+        executable: /bin/bash
+
+    - name: Expose ArgoCD server as NodePort if not already exposed
+      shell: |
+        kubectl --context kind-{{ inventory_hostname }} -n argocd patch svc argocd-server -p '{"spec": {"type": "NodePort", "ports": [{"port": 443, "targetPort": 8080, "nodePort": 32000}]}}'
+
+      args:
+        executable: /bin/bash
+      when: argocd_namespace.stdout == ""     
+
+    - name: Deploy root App of Apps in ArgoCD on 'east' cluster
+      command: >
+        kubectl --context kind-{{ inventory_hostname }} apply -f root-app-east.yaml
+      when: inventory_hostname == 'east' 
+
+    - name: Deploy root App of Apps in ArgoCD on 'west' cluster
+      command: >
+        kubectl --context kind-{{ inventory_hostname }} apply -f root-app-west.yaml
+      when: inventory_hostname == 'west'   
+
+    - name: Get kubeconfig for cluster
+      command: kind get kubeconfig --name {{ inventory_hostname }}
+      register: cluster_kubeconfig
+
+    - name: Retrieve cluster API endpoint
+      command: kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.server}' --context kind-{{ inventory_hostname }}
+      register: cluster_api_endpoint      
+
+    - name: Base64 encode the kubeconfig for cluster
+      shell: echo "{{ cluster_kubeconfig.stdout }}" | base64 | tr -d '\n'
+      register: kubeconfig_b64      
+
+    - name: Create Istio-compatible secret YAML
+      copy:
+        dest: ./{{ inventory_hostname }}-cluster-secret.yaml
+        content: |
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: istio-remote-cluster
+            namespace: istio-system
+          data:
+            # Base64-encoded kubeconfig for the cluster
+            kubeconfig: "{{ kubeconfig_b64.stdout }}"   
+
+
+    - name: Check if Helm is installed
+      command: helm version --short
+      register: helm_installed
+      ignore_errors: true
+
+
+    - name: Install Helm if not installed
+      block:
+        - name: Download Helm tarball
+          get_url:
+            url: https://get.helm.sh/helm-v3.11.2-linux-amd64.tar.gz  # Adjust to the latest version
+            dest: /tmp/helm-v3.11.2-linux-amd64.tar.gz
+
+        - name: Extract Helm tarball
+          unarchive:
+            src: /tmp/helm-v3.11.2-linux-amd64.tar.gz
+            dest: /tmp/
+            remote_src: yes
+
+        - name: Move Helm binary to /usr/local/bin
+          command: mv /tmp/linux-amd64/helm /usr/local/bin/helm
+          become: true
+
+        - name: Verify Helm installation
+          command: helm version --short
+          register: helm_version
+          become: true
+
+      when: helm_installed.rc != 0  # Only run this block if Helm is not installed   
+
+
+    - name: Add HashiCorp Helm repository
+      command: helm repo add hashicorp https://helm.releases.hashicorp.com
+
+    - name: Update Helm repositories
+      command: helm repo update     
+
+    - name: Create the Vault namespace
+      command: kubectl create namespace vault --context kind-{{ inventory_hostname }}
+      ignore_errors: true  # Ignore error if namespace already exists    
+
+    - name: Check if Vault pod is already running
+      command: kubectl --context kind-{{ inventory_hostname }} get pods vault-0 -n vault --no-headers
+      register: vault_pod_status
+      ignore_errors: true      
+
+    - name: Install Vault using Helm (with dev mode and HA disabled, NodePort service)
+      command: >
+        helm install vault hashicorp/vault --namespace vault \
+        --set server.ha.enabled=false \
+        --set server.dev.enabled=true \
+        --set server.dataStorage.enabled=false \
+        --set server.service.type=NodePort \
+        --set server.service.nodePort=31000 \
+        --set ingress.enabled=false \
+        --set server.dev.rootTokenId=vaultroottoken     
+      when: vault_pod_status.rc != 0          
+
+    - name: Wait for pod to be running
+      shell: |
+        kubectl get pods vault-0 -n vault -o jsonpath='{.status.phase}'
+      register: pod_status
+      until: pod_status.stdout == "Running"
+      retries: 20  # Maximum retries
+      delay: 5  # Delay between retries (in seconds)
+      failed_when: pod_status.stdout != "Running"  # Fail if the pod is not running after retries
+
+    - name: Print Vault Pod status
+      debug:
+        var: pod_status.stdout 
+
+    - name: Enable PKI secrets engine
+      command: kubectl exec -n vault -it vault-0 -- vault secrets enable pki
+
+
+    - name: Configure PKI secrets engine with CA certificate
+      shell: |
+        kubectl exec -n vault -it vault-0 -- vault write pki/root/generate/internal \
+          common_name="example.com" \
+          ttl="8760h"
+
+    - name: Configure PKI secrets engine to issue certificates
+      shell: |
+        kubectl exec -n vault -it vault-0 -- vault write pki/config/urls \
+          issuing_certificates="http://vault:8200/v1/pki/ca" \
+          crl_distribution_points="http://vault:8200/v1/pki/crl"     
+
+    - name: Configure a role for certificate issuance
+      shell: |
+        kubectl exec -n vault -it vault-0 -- vault write pki/roles/example-dot-com \
+          allow_any_name=true \
+          allow_subdomains=true \
+          max_ttl="72h"
+
+    - name: Print PKI engine configuration
+      debug:
+        msg: "PKI engine is enabled and configured for certificate issuance."                                   
+
+    # - name: Retrieve the initial admin password
+    #   command: >
+    #     kubectl --context kind-{{ inventory_hostname }} -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d 
+

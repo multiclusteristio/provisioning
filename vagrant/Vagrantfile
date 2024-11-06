@@ -1,0 +1,34 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/bionic64"
+  
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = "4096"
+    vb.cpus = 2
+  end
+
+  # Define east VM with public IP
+  config.vm.define "east" do |east|
+    east.vm.hostname = "east"
+    east.vm.network "public_network", ip: "192.168.1.10"  
+    
+    east.vm.network "forwarded_port", guest: 32000, host: 32000
+    east.vm.network "forwarded_port", guest: 31000, host: 31000    
+
+    east.vm.provision "ansible_local" do |ansible|
+      ansible.playbook = "playbook.yml"
+      ansible.extra_vars = { "inventory_hostname": "east" }
+      ansible.extra_vars = { "vault_root_token": "vaultroottoken" }
+      ansible.extra_vars = { "vault_node_port": "31000" }
+    end
+  end
+
+  # Define west VM with public IP
+  # config.vm.define "west" do |west|
+  #   west.vm.hostname = "west"
+  #   west.vm.network "public_network", ip: "192.168.1.11"  # Replace with a suitable IP for your network
+  #   west.vm.provision "ansible_local" do |ansible|
+  #     ansible.playbook = "playbook.yml"
+  #     ansible.extra_vars = { "inventory_hostname": "west" }
+  #   end
+  # end
+end
