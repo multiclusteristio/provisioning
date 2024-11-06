@@ -167,30 +167,75 @@
 
     - name: Enable PKI secrets engine
       command: kubectl exec -n vault -it vault-0 -- vault secrets enable pki
+      ignore_errors: true   
 
 
     - name: Configure PKI secrets engine with CA certificate
       shell: |
-        kubectl exec -n vault -it vault-0 -- vault write pki/root/generate/internal \
-          common_name="example.com" \
+        kubectl --context kind-{{ inventory_hostname }} exec -n vault -it vault-0 -- vault write pki/root/generate/internal \
+          common_name="cluster.local" \
           ttl="8760h"
 
     - name: Configure PKI secrets engine to issue certificates
       shell: |
-        kubectl exec -n vault -it vault-0 -- vault write pki/config/urls \
-          issuing_certificates="http://vault:8200/v1/pki/ca" \
-          crl_distribution_points="http://vault:8200/v1/pki/crl"     
+        kubectl --context kind-{{ inventory_hostname }} exec -n vault -it vault-0 -- vault write pki/config/urls \ 
+        issuing_certificates="http://vault.east.svc.cluster.local:8200/v1/pki/ca" \
+        crl_distribution_points="http://vault.east.svc.cluster.local:8200/v1/pki/crl" 
 
     - name: Configure a role for certificate issuance
       shell: |
-        kubectl exec -n vault -it vault-0 -- vault write pki/roles/example-dot-com \
-          allow_any_name=true \
+        kubectl --context kind-{{ inventory_hostname }} exec -n vault -it vault-0 -- vault write pki/roles/istio-role \
+          allowed_domains="svc.cluster.local" \
           allow_subdomains=true \
-          max_ttl="72h"
+          max_ttl=72h
 
-    - name: Print PKI engine configuration
-      debug:
-        msg: "PKI engine is enabled and configured for certificate issuance."                                   
+    - name: Enable Kubernetes auth method in Vault
+      shell: kubectl --context kind-{{ inventory_hostname }} exec -n vault -it vault-0 -- vault auth enable kubernetes 
+      ignore_errors: true     
+      
+    - name: Create Vault role for cert-manager in the east cluster
+      shell: |
+        kubectl --context kind-{{ inventory_hostname }} exec -n vault -it vault-0 -- vault write auth/kubernetes/role/cert-manager-role \
+          bound_service_account_names=cert-manager \
+          bound_service_account_namespaces=cert-manager \
+          policies=default \
+          ttl=1h
+
+
+    # - name: Configure Kubernetes auth method for east cluster
+    #   block:
+
+    #   - name: Get Kubernetes API server host from the east cluster
+    #     shell: |
+    #       kubectl --context kind-{{ inventory_hostname }} config view --raw --minify --flatten -o jsonpath='{.clusters[0].cluster.server}'
+    #     register: k8s_host_east 
+
+    #   - name: Get Kubernetes CA certificate from the east cluster
+    #     shell: |
+    #       kubectl --context kind-{{ inventory_hostname }} config view --raw --minify --flatten -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 --decode
+    #     register: k8s_ca_east           
+
+    #   - name: Get Service Account token for Vault from the east cluster
+    #     shell: |
+    #       kubectl --context kind-{{ inventory_hostname }} get secret $(kubectl get sa vault -n vault -o jsonpath='{.secrets[0].name}') -n vault -o jsonpath='{.data.token}' | base64 --decode
+    #     register: sa_token_east
+
+    #   - name: Configure Kubernetes auth method for east cluster
+    #     shell: |
+    #       kubectl --context kind-{{ inventory_hostname }} exec -n vault -it vault-0 -- vault write auth/kubernetes/config \
+    #         token_reviewer_jwt="{{ sa_token_east.stdout }}" \
+    #         kubernetes_host="{{ k8s_host_east.stdout }}" \
+    #         kubernetes_ca_cert="{{ k8s_ca_east.stdout }}" \
+    #         issuer="https://kubernetes.default.svc.cluster.local"        
+
+    #   when: inventory_hostname == 'east'  
+
+
+
+    
+
+          
+                                   
 
     # - name: Retrieve the initial admin password
     #   command: >
