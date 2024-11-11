@@ -102,12 +102,10 @@
             # Base64-encoded kubeconfig for the cluster
             kubeconfig: "{{ kubeconfig_b64.stdout }}"   
 
-
     - name: Check if Helm is installed
       command: helm version --short
       register: helm_installed
       ignore_errors: true
-
 
     - name: Install Helm if not installed
       block:
@@ -132,7 +130,6 @@
           become: true
 
       when: helm_installed.rc != 0  # Only run this block if Helm is not installed   
-
 
     - name: Add HashiCorp Helm repository
       command: helm repo add hashicorp https://helm.releases.hashicorp.com
@@ -177,7 +174,6 @@
     - name: Enable PKI secrets engine
       command: kubectl --context kind-{{ inventory_hostname }} exec -n vault -it vault-0 -- vault secrets enable pki
       ignore_errors: true   
-
 
     - name: Configure PKI secrets engine with CA certificate
       shell: |
@@ -241,7 +237,6 @@
           issuer="https://kubernetes.default.svc.cluster.local"
       when: inventory_hostname == 'east'           
           
-
     - name: Create pki policy
       shell: |
         kubectl --context kind-{{ inventory_hostname }} exec -n vault -it vault-0 -- vault policy write pki - <<EOF
@@ -250,7 +245,6 @@
         }
         EOF
       ignore_errors: true        
-
 
     - name: Create Vault role for istio
       shell: |
@@ -271,6 +265,43 @@
     - name: Print k8s_ca
       debug:
         var: k8s_ca.stdout  
+
+    - name: Check if cert-manager is already installed
+      command: kubectl --context kind-{{ inventory_hostname }} get deployment cert-manager -n cert-manager
+      register: cert_manager_check
+      ignore_errors: true
+
+    - name: Install cert-manager using Helm if not installed
+      command: >
+        helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace 
+        --set crds.enabled=true \
+        --set global.logLevel=6 \   
+        --version v1.16.0 \     
+        --wait \
+      when: cert_manager_check.failed  
+
+    - name: Check if the Issuer resource exists in the istio-system namespace
+      command: kubectl get issuer istio-ca -n istio-system
+      register: issuer_check
+      ignore_errors: true
+
+    - name: Deploy vault issuer
+      command: >
+        kubectl --context kind-{{ inventory_hostname }} apply -f ./{{ inventory_hostname }}/vault-issuer.yaml  
+      when: issuer_check.rc != 0   
+      failed_when: issuer_apply.rc != 0
+      changed_when: issuer_apply.rc == 0  
+
+    - name: Inform if the Issuer resource already exists
+      debug:
+        msg: "Issuer resource 'istio-ca' already exists in the 'istio-system' namespace."
+      when: issuer_check.rc == 0               
+
+    - name: Install cert-manager-istio-csr using Helm
+      command: >
+        helm install cert-manager jetstack/cert-manager-istio-csr --namespace istio-system   
+        --version v0.12.0 \     
+        --wait \         
 
     # - name: Retrieve the initial admin password
     #   command: >

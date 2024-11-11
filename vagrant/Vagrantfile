@@ -15,7 +15,7 @@ Vagrant.configure("2") do |config|
     east.vm.network "forwarded_port", guest: 31000, host: 31000    
 
     east.vm.provision "ansible_local" do |ansible|
-      ansible.playbook = "playbook.yml"
+      ansible.playbook = "main.yml"
       ansible.extra_vars = { "inventory_hostname": "east" }
       ansible.extra_vars = { "vault_root_token": "vaultroottoken" }
       ansible.extra_vars = { "vault_node_port": "31000" }
