@@ -1,0 +1,51 @@
+
+---
+
+- name: Add Helm repository for cert-manager-istio-csr
+  command:
+    cmd: helm repo add jetstack https://charts.jetstack.io
+  register: helm_repo_add
+  failed_when: "'Error' in helm_repo_add.stderr"
+  changed_when: "'Error' not in helm_repo_add.stderr"
+
+- name: Update Helm repositories
+  command:
+    cmd: helm repo update
+  register: helm_repo_update
+  failed_when: "'Error' in helm_repo_update.stderr"
+  changed_when: "'Error' not in helm_repo_update.stderr"
+
+- name: Check if cert-manager-istio-csr release exists
+  command: helm list --namespace istio-system --filter cert-manager-istio-csr
+  register: helm_release_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Install cert-manager-istio-csr using Helm and wait for it to become healthy
+  command: >
+    helm install cert-manager-istio-csr jetstack/cert-manager-istio-csr --namespace istio-system \
+    --version v0.12.0 \
+    --wait \
+    --timeout 600s
+  when: helm_release_check.rc != 0
+  register: helm_install
+  failed_when: helm_install.rc != 0
+  changed_when: helm_install.rc == 0
+
+- name: Ensure cert-manager-istio-csr is deployed and healthy
+  command:
+    cmd: helm status cert-manager-istio-csr --namespace istio-system
+  register: helm_status
+  retries: 10
+  delay: 30
+  until: "'STATUS: deployed' in helm_status.stdout"
+
+- name: Confirm cert-manager-istio-csr is deployed and healthy
+  debug:
+    msg: "cert-manager-istio-csr has been successfully deployed and is healthy."
+  when: "'STATUS: deployed' in helm_status.stdout"
+
+- name: Fail if cert-manager-istio-csr is not healthy after waiting
+  fail:
+    msg: "cert-manager-istio-csr deployment is not healthy after waiting"
+  when: "'STATUS: deployed' not in helm_status.stdout"

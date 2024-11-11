@@ -22,8 +22,15 @@
     - name: Save Istio Remote Secret File
       include_tasks: tasks/remote-secret.yml        
 
-    # - name: Install cert-manager
-    #   include_tasks: tasks/cert_manager.yml
+    - name: Install cert-manager
+      include_tasks: tasks/cert-manager.yml
 
+    - name: Install vault-issuer
+      include_tasks: tasks/vault-issuer.yml      
+
+    - name: Install cert-manager-istio-csr
+      include_tasks: tasks/cert-manager-istio-csr.yml 
+
+      
     # - name: Setup Istio for Vault Integration
     #   include_tasks: tasks/istio.yml
