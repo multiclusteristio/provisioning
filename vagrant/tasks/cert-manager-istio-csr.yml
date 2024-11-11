@@ -16,14 +16,14 @@
   changed_when: "'Error' not in helm_repo_update.stderr"
 
 - name: Check if cert-manager-istio-csr release exists
-  command: helm list --namespace istio-system --filter cert-manager-istio-csr
+  command: helm list --namespace cert-manager --filter cert-manager-istio-csr
   register: helm_release_check
   ignore_errors: true
   changed_when: false
 
 - name: Install cert-manager-istio-csr using Helm and wait for it to become healthy
   command: >
-    helm install cert-manager-istio-csr jetstack/cert-manager-istio-csr --namespace istio-system \
+    helm install cert-manager-istio-csr jetstack/cert-manager-istio-csr --namespace cert-manager \
     --version v0.12.0 \
     --wait \
     --timeout 600s
@@ -34,7 +34,7 @@
 
 - name: Ensure cert-manager-istio-csr is deployed and healthy
   command:
-    cmd: helm status cert-manager-istio-csr --namespace istio-system
+    cmd: helm status cert-manager-istio-csr --namespace cert-manager
   register: helm_status
   retries: 10
   delay: 30

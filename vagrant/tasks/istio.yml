@@ -1,0 +1,79 @@
+---
+
+- name: Add Istio Helm repository
+  command: helm repo add istio https://istio-release.storage.googleapis.com/charts
+  register: istio_repo_add
+  failed_when: istio_repo_add.rc != 0
+  changed_when: istio_repo_add.rc == 0
+
+- name: Update Helm repositories
+  command: helm repo update
+  register: helm_repo_update
+  failed_when: helm_repo_update.rc != 0
+  changed_when: false
+
+- name: Check if Istio base is installed via Helm
+  command: helm list -n istio-system --filter istio-base
+  register: istio_base_check
+  ignore_errors: true
+  failed_when: false
+  changed_when: false
+
+- name: Install Istio base if not installed
+  command: |
+    helm install istio-base istio/istio-base --namespace istio-system
+  when: istio_base_check.rc != 0
+  register: istio_base_install
+  failed_when: istio_base_install.rc != 0
+  changed_when: istio_base_install.rc == 0
+
+- name: Check if Istiod is installed via Helm
+  command: helm list -n istio-system --filter istiod
+  register: istiod_check
+  ignore_errors: true
+  failed_when: false
+  changed_when: false
+
+- name: Install Istiod if not installed
+  command: |
+    helm install istiod istio/istiod --namespace istio-system \
+    --set global.hub=istio \
+    --set global.tag=1.16.0
+  when: istiod_check.rc != 0
+  register: istiod_install
+  failed_when: istiod_install.rc != 0
+  changed_when: istiod_install.rc == 0
+
+- name: Wait for Istiod to be fully deployed
+  command: kubectl --context kind-{{ inventory_hostname }} rollout status deployment/istiod -n istio-system --wait
+  register: istiod_rollout_status
+  retries: 30
+  delay: 10
+  failed_when: istiod_rollout_status.rc != 0
+  changed_when: false
+
+- name: Check if Istio Ingress Gateway is installed via Helm
+  command: helm list -n istio-system --filter istio-ingressgateway
+  register: istio_ingress_gateway_check
+  ignore_errors: true
+  failed_when: false
+  changed_when: false
+
+- name: Install Istio Ingress Gateway if not installed
+  command: |
+    helm install istio-ingressgateway istio/gateway --namespace istio-system \
+    --set global.hub=istio \
+    --set global.tag=1.16.0 \
+    --set gateways.enabled=true
+  when: istio_ingress_gateway_check.rc != 0
+  register: istio_ingress_gateway_install
+  failed_when: istio_ingress_gateway_install.rc != 0
+  changed_when: istio_ingress_gateway_install.rc == 0
+
+- name: Wait for Istio Ingress Gateway to be deployed
+  command: kubectl --context kind-{{ inventory_hostname }} rollout status deployment/istio-ingressgateway -n istio-system --wait
+  register: istio_ingress_gateway_rollout_status
+  retries: 30
+  delay: 10
+  failed_when: istio_ingress_gateway_rollout_status.rc != 0
+  changed_when: false
