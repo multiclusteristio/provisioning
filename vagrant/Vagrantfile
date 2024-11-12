@@ -13,6 +13,8 @@ Vagrant.configure("2") do |config|
     
     east.vm.network "forwarded_port", guest: 32000, host: 32000
     east.vm.network "forwarded_port", guest: 31000, host: 31000    
+    east.vm.network "forwarded_port", guest: 30080, host: 30080     
+    east.vm.network "forwarded_port", guest: 30443, host: 30443            
 
     east.vm.provision "ansible_local" do |ansible|
       ansible.playbook = "main.yml"

@@ -7,6 +7,10 @@
   changed_when: false
   failed_when: false
 
+- name: Debug the issuer_check result
+  debug:
+    var: issuer_check
+
 - name: Create Issuer resource if it doesn't exist
   command: kubectl --context kind-{{ inventory_hostname }} apply -f ./{{ inventory_hostname }}/vault-issuer.yaml
   when: issuer_check.rc != 0

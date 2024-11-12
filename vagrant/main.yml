@@ -31,6 +31,5 @@
     - name: Install cert-manager-istio-csr
       include_tasks: tasks/cert-manager-istio-csr.yml 
 
-      
-    # - name: Setup Istio for Vault Integration
-    #   include_tasks: tasks/istio.yml
+    - name: Setup Istio
+      include_tasks: tasks/istio.yml

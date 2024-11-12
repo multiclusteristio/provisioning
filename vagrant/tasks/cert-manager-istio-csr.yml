@@ -15,16 +15,19 @@
   failed_when: "'Error' in helm_repo_update.stderr"
   changed_when: "'Error' not in helm_repo_update.stderr"
 
-- name: Check if cert-manager-istio-csr release exists
-  command: helm list --namespace cert-manager --filter cert-manager-istio-csr
+
+- name: Check if cert-manager-istio-csr is already installed
+  command: "helm status cert-manager-istio-csr -n cert-manager"
   register: helm_release_check
-  ignore_errors: true
-  changed_when: false
+  failed_when: helm_release_check.rc not in [0, 1]
+  changed_when: false  
+  
 
 - name: Install cert-manager-istio-csr using Helm and wait for it to become healthy
   command: >
     helm install cert-manager-istio-csr jetstack/cert-manager-istio-csr --namespace cert-manager \
     --version v0.12.0 \
+    --set app.server.clusterID={{ inventory_hostname }} \
     --wait \
     --timeout 600s
   when: helm_release_check.rc != 0
@@ -40,12 +43,3 @@
   delay: 30
   until: "'STATUS: deployed' in helm_status.stdout"
 
-- name: Confirm cert-manager-istio-csr is deployed and healthy
-  debug:
-    msg: "cert-manager-istio-csr has been successfully deployed and is healthy."
-  when: "'STATUS: deployed' in helm_status.stdout"
-
-- name: Fail if cert-manager-istio-csr is not healthy after waiting
-  fail:
-    msg: "cert-manager-istio-csr deployment is not healthy after waiting"
-  when: "'STATUS: deployed' not in helm_status.stdout"

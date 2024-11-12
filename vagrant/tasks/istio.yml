@@ -12,66 +12,68 @@
   failed_when: helm_repo_update.rc != 0
   changed_when: false
 
-- name: Check if Istio base is installed via Helm
-  command: helm list -n istio-system --filter istio-base
-  register: istio_base_check
-  ignore_errors: true
-  failed_when: false
+- name: Check if Istio base is already deployed
+  command: "helm status base -n istio-system"
+  register: istio_base_status
+  failed_when: istio_base_status.rc not in [0, 1]
   changed_when: false
 
 - name: Install Istio base if not installed
   command: |
-    helm install istio-base istio/istio-base --namespace istio-system
-  when: istio_base_check.rc != 0
-  register: istio_base_install
-  failed_when: istio_base_install.rc != 0
-  changed_when: istio_base_install.rc == 0
+    helm install base istio/base --namespace istio-system \
+    --version 1.23.3 \
+    --wait \
+  when: istio_base_status.rc == 1
 
-- name: Check if Istiod is installed via Helm
-  command: helm list -n istio-system --filter istiod
-  register: istiod_check
-  ignore_errors: true
-  failed_when: false
+- name: Check if istiod is already deployed
+  command: "helm status istiod -n istio-system"
+  register: istiod_status
+  failed_when: istiod_status.rc not in [0, 1]
   changed_when: false
 
 - name: Install Istiod if not installed
   command: |
     helm install istiod istio/istiod --namespace istio-system \
-    --set global.hub=istio \
-    --set global.tag=1.16.0
-  when: istiod_check.rc != 0
-  register: istiod_install
-  failed_when: istiod_install.rc != 0
-  changed_when: istiod_install.rc == 0
+    --set global.meshID=uaemesh \
+    --set global.network={{ inventory_hostname }}-net \
+    --set global.multiCluster.enabled=true \
+    --set global.multiCluster.clusterName={{ inventory_hostname }} \ 
+    --set global.caAddress="cert-manager-istio-csr.cert-manager.svc:443"
+    --version 1.23.3 
+  when: istiod_status.rc == 1 and istio_base_status.rc in [0, 1]
 
 - name: Wait for Istiod to be fully deployed
-  command: kubectl --context kind-{{ inventory_hostname }} rollout status deployment/istiod -n istio-system --wait
+  command: kubectl --context kind-{{ inventory_hostname }} rollout status deployment/istiod -n istio-system
   register: istiod_rollout_status
   retries: 30
   delay: 10
   failed_when: istiod_rollout_status.rc != 0
   changed_when: false
 
-- name: Check if Istio Ingress Gateway is installed via Helm
-  command: helm list -n istio-system --filter istio-ingressgateway
-  register: istio_ingress_gateway_check
-  ignore_errors: true
-  failed_when: false
+- name: Check if Istio ingress gateway is already deployed
+  command: "helm status istio-ingressgateway -n istio-system"
+  register: istio_gateway_status
+  failed_when: istio_gateway_status.rc not in [0, 1]
   changed_when: false
 
 - name: Install Istio Ingress Gateway if not installed
   command: |
     helm install istio-ingressgateway istio/gateway --namespace istio-system \
-    --set global.hub=istio \
-    --set global.tag=1.16.0 \
-    --set gateways.enabled=true
-  when: istio_ingress_gateway_check.rc != 0
-  register: istio_ingress_gateway_install
-  failed_when: istio_ingress_gateway_install.rc != 0
-  changed_when: istio_ingress_gateway_install.rc == 0
+    --version 1.23.3 \
+    --set service.type=NodePort \
+    --set service.ports[0].name=http \
+    --set service.ports[0].port=80 \
+    --set service.ports[0].targetPort=8080 \
+    --set service.ports[0].nodePort=30080 \
+    --set service.ports[1].name=https \
+    --set service.ports[1].port=443 \
+    --set service.ports[1].targetPort=8443 \
+    --set service.ports[1].nodePort=30443    
+    
+  when: istio_gateway_status.rc == 1 and istiod_status.rc in [0, 1]
 
 - name: Wait for Istio Ingress Gateway to be deployed
-  command: kubectl --context kind-{{ inventory_hostname }} rollout status deployment/istio-ingressgateway -n istio-system --wait
+  command: kubectl --context kind-{{ inventory_hostname }} rollout status deployment/istio-ingressgateway -n istio-system
   register: istio_ingress_gateway_rollout_status
   retries: 30
   delay: 10
