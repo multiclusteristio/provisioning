@@ -21,7 +21,7 @@
 - name: Install Istio base if not installed
   command: |
     helm install base istio/base --namespace istio-system \
-    --version 1.23.3 \
+    --version {{ istio_version }} \
     --wait \
   when: istio_base_status.rc == 1
 
@@ -34,12 +34,12 @@
 - name: Install Istiod if not installed
   command: |
     helm install istiod istio/istiod --namespace istio-system \
-    --set global.meshID=uaemesh \
+    --set global.meshID={{ istio_mesh_name }} \
     --set global.network={{ inventory_hostname }}-net \
     --set global.multiCluster.enabled=true \
     --set global.multiCluster.clusterName={{ inventory_hostname }} \ 
     --set global.caAddress="cert-manager-istio-csr.cert-manager.svc:443"
-    --version 1.23.3 
+    --version {{ istio_version }}
   when: istiod_status.rc == 1 and istio_base_status.rc in [0, 1]
 
 - name: Wait for Istiod to be fully deployed
@@ -59,16 +59,16 @@
 - name: Install Istio Ingress Gateway if not installed
   command: |
     helm install istio-ingressgateway istio/gateway --namespace istio-system \
-    --version 1.23.3 \
+    --version {{ istio_version }} \
     --set service.type=NodePort \
     --set service.ports[0].name=http \
     --set service.ports[0].port=80 \
     --set service.ports[0].targetPort=8080 \
-    --set service.ports[0].nodePort=30080 \
+    --set service.ports[0].nodePort={{ istio_igw_http_port }} \
     --set service.ports[1].name=https \
     --set service.ports[1].port=443 \
     --set service.ports[1].targetPort=8443 \
-    --set service.ports[1].nodePort=30443    
+    --set service.ports[1].nodePort={{ istio_igw_https_port }}    
     
   when: istio_gateway_status.rc == 1 and istiod_status.rc in [0, 1]
 

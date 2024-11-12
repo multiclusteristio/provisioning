@@ -14,7 +14,8 @@
 
 - name: Expose ArgoCD server as NodePort if not already exposed
   shell: |
-    kubectl --context kind-{{ inventory_hostname }} -n argocd patch svc argocd-server -p '{"spec": {"type": "NodePort", "ports": [{"port": 443, "targetPort": 8080, "nodePort": 32000}]}}'
+    kubectl --context kind-{{ inventory_hostname }} -n argocd patch svc argocd-server \
+      -p '{"spec": {"type": "NodePort", "ports": [{"port": 443, "targetPort": 8080, "nodePort": {{ argo_node_port }}}]}}'
   args:
     executable: /bin/bash
   when: argocd_namespace.stdout == "" 

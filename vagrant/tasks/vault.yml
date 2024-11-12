@@ -15,9 +15,9 @@
     --set server.dev.enabled=true \
     --set server.dataStorage.enabled=false \
     --set server.service.type=NodePort \
-    --set server.service.nodePort=31000 \
+    --set "server.service.nodePort={{ vault_node_port }}" \
     --set ingress.enabled=false \
-    --set server.dev.rootToken=root
+    --set "server.dev.rootToken={{ vault_root_token }}"
   when: vault_pod_status.rc != 0     
 
 - name: Wait for pod to be running

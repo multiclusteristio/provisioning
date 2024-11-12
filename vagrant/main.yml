@@ -2,13 +2,16 @@
 - hosts: all
   become: true
 
-  tasks:
+  tasks:  
     - name: Install Docker and Dependencies
       include_tasks: tasks/docker.yml
 
     - name: Install Kind, kubectl and Create Kind Clusters
       include_tasks: tasks/kind.yml
       when: ansible_facts['os_family'] == "Debian"
+
+    - name: Get kubeconfig
+      include_tasks: tasks/kubeconfig.yml
 
     - name: Install and Configure ArgoCD
       include_tasks: tasks/argo.yml    
@@ -23,7 +26,7 @@
       include_tasks: tasks/remote-secret.yml        
 
     - name: Install cert-manager
-      include_tasks: tasks/cert-manager.yml
+      include_tasks: tasks/cert-manager.yml  
 
     - name: Install vault-issuer
       include_tasks: tasks/vault-issuer.yml      
